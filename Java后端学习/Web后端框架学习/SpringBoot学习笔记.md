@@ -512,7 +512,7 @@ static class Registrar implements ImportBeanDefinitionRegistrar, DeterminableImp
    得到所有的组件
 4、从META-INF/spring.factories位置来加载一个文件。
        默认扫描我们当前系统里面所有META-INF/spring.factories位置的文件
-       spring-boot-autoconfigure-2.5.3.jar包里面也有META-INF/spring.factories
+       例如spring-boot-autoconfigure-2.5.3.jar包里面也有META-INF/spring.factories
        文件里面写死了spring-boot一启动就要给容器中加载的所有配置类
 ```
 
@@ -4394,7 +4394,263 @@ public void shouldFail(){
 
 #### 22.1 Profile功能
 
+> 为了方便多环境适配，springboot简化了profile功能
+
+**1、application-profile功能**
+
+> 可以在resources目录下配置多个配置文件，代表多个运行环境，通过application-profile功能，进行环境的切换
+
+- **默认的**配置文件：application.yaml；任何时候都会加载
+
+- **指定的**环境配置文件：application-XXX.yaml（例如：生产环境：application-prod.yaml测试环境：application-test.yaml）
+
+- 激活指定的环境：
+
+  - 配置默认的application.yaml进行激活：
+
+    ```yaml
+    spring:
+      profiles:
+        active: prod #指定激活的环境
+    ```
+
+  - 命令行激活：
+
+    ```
+    java -jar xxxx.jar --spring.profiles.active=prod
+    ```
+
+- 默认配置与指定环境配置同时生效
+
+- 配置同名项，**指定的profile精确配置优先**
+
+**2、@Profile条件装配功能**
+
+> 可以给组件标注 @Profile("xxxx") 注解，表示该组件在什么环境下生效
+
+```java
+@Configuration(proxyBeanMethod = false)
+@Profile("prod")
+public class ProductionConfiguration(){
+    //...
+}
+```
+
+**3、profile分组**
+
+> 可以在默认配置文件中配置指定环境组，一个组可以配置多个环境，激活一个组就会激活组中所有的配置环境
+>
+> 定义组：
+> spring.profiles.group.xxxx[0]=xxx
+> spring.profiles.group.xxxx[1]=xxx
+
+```properties
+spring.profiles.group.production[0]=prod1
+spring.profiles.group.production[1]=prod2
+spring.profiles.active=production
+```
+
 #### 22.2 外部化配置
+
+**1、外部配置源**
+
+常用：java属性文件（properties）、yaml、环境变量、命令行参数
+
+**2、配置文件查找位置**
+
+**后面的覆盖前面的：**
+
+- 1、classpath 根路径（）
+- 2、classpath 根路径下config目录
+- 3、jar包当前目录
+- 4、jar包当前目录的config目录
+- 5、/config子目录的直接子目录
+
+（**classpath root等价于 main/java 、 main/resources 、 第三方jar包的根目录。**）
+
+**3、配置文件加载顺序**
+
+**后面的覆盖前面的：**
+
+1. 当前jar包内部的application.properties和application.yaml
+2. 当前jar包内部的application-{profile}.properties 和 application-{profile}.yaml
+3. 引用外部jar包的application.properties和application.yaml
+4. 引用外部jar包的application-{profile}.properties 和 application-{profile}.yaml
+
+#### 22.3 自定义starter
+
+##### 1、starter启动原理
+
+- starter-pom引入 autoconfigure包
+
+  ![image-20221020021450654](..\image\image-20221020021450654.png)
+
+- autoconfigure包中配置使用 ==META-INF/spring.factories==中 **EnableAutoConfiguration的值，使得项目启动加载指定的自动配置类**
+
+- 编写自动配置类 **xxxAutoConfiguration --> xxxxProperties**
+
+  - **@Configuration**
+  - **@Conditional**
+  - **@EnableConfigurationProperties**
+  - **@Bean**
+  - ...
+
+**引入starter --- xxxAutoConfiguration --- 容器中放入组件 --- 绑定xxxProperties --- 配置项**
+
+##### 2、自定义starter
+
+> 自定义一个starter，自动配置一个Service组件，使得引入该starter的项目能够直接使用该组件进行开发
+>
+> 需要编写两个jar包：
+>
+> - feng-hello-spring-boot-starter ：场景启动器，用于引入该自定义场景
+> - feng-hello-spring-boot-starter-autoconfigure ：自动配置包，被场景启动器引用，会被springboot加载，真正进行自动配置。
+
+**1、feng-hello-spring-boot-starter的构建：**
+
+1. 创建Maven工程
+
+2. 编写POM文件，**引入feng-hello-spring-boot-starter-autoconfigure**：
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <project xmlns="http://maven.apache.org/POM/4.0.0"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+       <modelVersion>4.0.0</modelVersion>
+   
+       <groupId>com.feng</groupId>
+       <artifactId>feng-hello-spring-boot-starter</artifactId>
+       <version>1.0-SNAPSHOT</version>
+   
+       <dependencies>
+           <!--starter的工作是引入自动配置jar包，具体的自动配置在autoconfigure里面-->
+           <dependency>
+               <groupId>com.feng</groupId>
+               <artifactId>feng-hello-spring-boot-starter-autoconfigure</artifactId>
+               <version>0.0.1-SNAPSHOT</version>
+           </dependency>
+       </dependencies>
+   </project>
+   ```
+
+3. 执行Maven命令：clean、install；将**该工程打成jar包并发布到本地maven仓库中**
+
+**2、feng-hello-spring-boot-starter-autoconfigure的构建**
+
+1. 使用==Spring Initializr==创建springboot的maven工程
+
+2. 删去不必要的test目录、springboot主程序、配置文件application.properties
+
+3. 编写Service组件：
+
+   ```java
+   /**
+    * HelloService组件：
+    * 模拟Service层的第三方组件
+    * 1、这里不要直接注册到容器中，交由自动配置类进行条件装配（用户才能对该组件进行定制化）
+    * 2、所需要的JavaBean从容器中获取，交由自动配置类进行注册
+    */
+   public class HelloService {
+   
+       //从容器中获取
+       @Autowired
+       HelloProperties helloProperties;
+   
+       public String sayHello(String userName){
+           return helloProperties.getPrefix() + "," + userName + "," + helloProperties.getSuffix();
+       }
+   }
+   ```
+
+4. 编写Service组件需要的 JavaBean组件：
+
+   ```java
+   /**
+    * JavaBean组件，采用配置绑定，使得用户能在配置文件中修改属性：
+    * 交由自动配置类完成注册
+    */
+   //@Component
+   @ConfigurationProperties(prefix = "feng.hello")
+   public class HelloProperties {
+       private String prefix;
+       private String suffix;
+   
+       public String getPrefix() {
+           return prefix;
+       }
+   
+       public void setPrefix(String prefix) {
+           this.prefix = prefix;
+       }
+   
+       public String getSuffix() {
+           return suffix;
+       }
+   
+       public void setSuffix(String suffix) {
+           this.suffix = suffix;
+       }
+   }
+   ```
+
+5. 编写**自动配置类**，为引入了该starter的springboot项目 **注册 Service组件** 及其所需要的 **JavaBean组件以及它的配置绑定**：
+
+   ```java
+   /**
+    * 自动配置类：
+    * springboot会自动加载该配置类
+    * 1、条件装配 HelloService组件
+    * 2、配置绑定 HelloProperties属性，并注册到容器中
+    */
+   @Configuration
+   @EnableConfigurationProperties(HelloProperties.class) //配置绑定 + 注册
+   public class HelloServiceAutoConfiguration {
+   
+       //容器中没有 HelloService组件时，采用该默认装配：
+       @ConditionalOnMissingBean(HelloService.class)
+       @Bean
+       public HelloService helloService(){
+           return new HelloService();
+       }
+   }
+   ```
+
+6. 在resources目录下创建 ==spring.factories== 文件，引入该starter的**springboot在初始化**的时候会扫描到这个文件（默认扫描当前工程下所有的==spring.factories== 文件），**指定需要扫描哪些自动配置类**：
+
+   ```properties
+   # 定义springboot自动加载哪个自动配置类
+   org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+   com.feng.hello.auto.HelloServiceAutoConfiguration
+   ```
+
+7. 执行Maven命令：clean、install；将**该工程打成jar包并发布到本地maven仓库中**
+
+**3、引入了该starter的springboot项目，对该自定义场景中的组件进行使用：**
+
+```java
+@RestController
+public class HelloController {
+
+    //该组件为引入的自定义starter中的Service组件
+    @Autowired
+    HelloService helloService;
+    
+    @RequestMapping("/hello")
+    public String hello(@RequestParam("name") String name){
+        return helloService.sayHello(name);
+    }
+}
+```
+
+### 二十三、笔记与代码解释
+
+> 对应关系：
+>
+> - 第一章至第二十二章笔记 对应代码：SpringBootLearning
+> - 自定义的starter的源码：SpringBootCustomerStarter
+
+
 
 
 
